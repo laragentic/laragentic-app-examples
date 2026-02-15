@@ -83,25 +83,21 @@ php artisan key:generate
 ANTHROPIC_API_KEY=your-api-key-here
 ```
 
-6. **Build frontend assets:**
+6. **Start the development server:**
 
 ```bash
-npm run build
+composer run dev
 ```
 
-Or for development with hot reload:
-
-```bash
-npm run dev
-```
-
-7. **Start the Laravel server:**
-
-```bash
-php artisan serve
-```
+This single command starts:
+- Laravel development server (`php artisan serve`)
+- Queue worker
+- Log viewer (`php artisan pail`)
+- Vite dev server with hot reload
 
 Visit `http://localhost:8000` to see the examples.
+
+> **Alternative:** For production builds, run `npm run build` and then `php artisan serve` separately.
 
 ## Project Structure
 
