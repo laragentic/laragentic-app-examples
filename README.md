@@ -2,7 +2,7 @@
 
 **Working Laravel applications demonstrating Laragentic agentic loops in action.**
 
-This repository contains complete, ready-to-run examples of agents using the [Laragentic](https://github.com/laragentic/laragentic) package — a Laravel package that extends the [Laravel AI SDK](https://laravel.com/docs/12.x/ai-sdk) with autonomous agentic loops.
+This repository contains complete, ready-to-run examples of agents using the [Laragentic](https://github.com/laragentic/agents) package — a Laravel package that extends the [Laravel AI SDK](https://laravel.com/docs/12.x/ai-sdk) with autonomous agentic loops.
 
 ## What's Inside
 
@@ -219,7 +219,7 @@ Route::get('/react-stream', function () {
 
 ## Learn More
 
-- **[Laragentic Package](https://github.com/laragentic/laragentic)** — Main package documentation, tutorials, and API reference
+- **[Laragentic Package](https://github.com/laragentic/agents)** — Main package documentation, tutorials, and API reference
 - **[Laravel AI SDK](https://laravel.com/docs/12.x/ai-sdk)** — Official Laravel AI documentation
 - **[Code with PHP](https://codewithphp.com)** — Free learning platform for modern PHP and Laravel
 
