@@ -1,0 +1,58 @@
+@import 'tailwindcss';
+
+@source '../views';
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+
+@theme {
+    --font-sans:
+        'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+
+    /* Color system - Light mode */
+    --color-background: oklch(100% 0 0);
+    --color-foreground: oklch(9% 0 0);
+    --color-card: oklch(100% 0 0);
+    --color-card-foreground: oklch(9% 0 0);
+    --color-popover: oklch(100% 0 0);
+    --color-popover-foreground: oklch(9% 0 0);
+    --color-primary: oklch(25% 0 0);
+    --color-primary-foreground: oklch(98% 0 0);
+    --color-secondary: oklch(96% 0 0);
+    --color-secondary-foreground: oklch(9% 0 0);
+    --color-muted: oklch(96% 0 0);
+    --color-muted-foreground: oklch(45% 0 0);
+    --color-accent: oklch(96% 0 0);
+    --color-accent-foreground: oklch(9% 0 0);
+    --color-destructive: oklch(58% 0.22 23);
+    --color-destructive-foreground: oklch(98% 0 0);
+    --color-border: oklch(90% 0 0);
+    --color-input: oklch(90% 0 0);
+    --color-ring: oklch(9% 0 0);
+
+    /* Border radius */
+    --radius: 0.5rem;
+}
+
+/* Dark mode color overrides */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --color-background: oklch(9% 0 0);
+        --color-foreground: oklch(98% 0 0);
+        --color-card: oklch(9% 0 0);
+        --color-card-foreground: oklch(98% 0 0);
+        --color-popover: oklch(9% 0 0);
+        --color-popover-foreground: oklch(98% 0 0);
+        --color-primary: oklch(98% 0 0);
+        --color-primary-foreground: oklch(9% 0 0);
+        --color-secondary: oklch(15% 0 0);
+        --color-secondary-foreground: oklch(98% 0 0);
+        --color-muted: oklch(15% 0 0);
+        --color-muted-foreground: oklch(64% 0 0);
+        --color-accent: oklch(15% 0 0);
+        --color-accent-foreground: oklch(98% 0 0);
+        --color-destructive: oklch(63% 0.19 28);
+        --color-destructive-foreground: oklch(98% 0 0);
+        --color-border: oklch(15% 0 0);
+        --color-input: oklch(15% 0 0);
+        --color-ring: oklch(83% 0 0);
+    }
+}

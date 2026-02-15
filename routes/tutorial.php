@@ -1,0 +1,527 @@
+<?php
+
+use App\Agents\PlanExecuteDemoAgent;
+use App\Agents\ReActDemoAgent;
+use App\Agents\TutorialChatAgent;
+use Illuminate\Http\StreamedEvent;
+use Illuminate\Support\Facades\Route;
+use Inertia\Inertia;
+
+/*
+|--------------------------------------------------------------------------
+| Laragentic Tutorial Routes
+|--------------------------------------------------------------------------
+|
+| These routes power the tutorial examples with fully working code that
+| developers can copy and use in their own applications.
+|
+*/
+
+// Frontend pages
+Route::prefix('tutorial')->group(function () {
+    Route::get('/chat', function () {
+        return Inertia::render('TutorialChat');
+    })->name('tutorial.chat');
+
+    Route::get('/react-loop', function () {
+        return Inertia::render('ReactLoopDemo');
+    })->name('tutorial.react-loop');
+
+    Route::get('/plan-execute', function () {
+        return Inertia::render('PlanExecuteDemo');
+    })->name('tutorial.plan-execute');
+});
+
+// ─── Complete Example: Chat Agent with Conversation ─────────────────────
+
+Route::get('/tutorial/complete-example', function () {
+    $agent = new TutorialChatAgent;
+    $conversationId = request()->input('conversation_id');
+
+    if ($conversationId) {
+        $agent->withConversation($conversationId);
+    }
+
+    return response()->eventStream(function () use ($agent) {
+        $agent
+            ->onBeforeAction(function (string $tool, array $args, int $iteration) {
+                yield new StreamedEvent(
+                    event: 'action',
+                    data: [
+                        'tool' => $tool,
+                        'args' => $args,
+                        'iteration' => $iteration,
+                        'stage' => 'start',
+                    ],
+                );
+            })
+            ->onAfterAction(function (string $tool, array $args, string $result, int $iteration) {
+                yield new StreamedEvent(
+                    event: 'action',
+                    data: [
+                        'tool' => $tool,
+                        'result' => $result,
+                        'iteration' => $iteration,
+                        'stage' => 'complete',
+                    ],
+                );
+            })
+            ->onObservation(function (string $observation, int $iteration) {
+                yield new StreamedEvent(
+                    event: 'observation',
+                    data: [
+                        'text' => $observation,
+                        'iteration' => $iteration,
+                    ],
+                );
+            })
+            ->onLoopComplete(function ($response, int $iterations) {
+                yield new StreamedEvent(
+                    event: 'complete',
+                    data: [
+                        'text' => $response->text,
+                        'iterations' => $iterations,
+                        'conversationId' => $response->conversationId,
+                    ],
+                );
+            });
+
+        yield from $agent->reactLoopStream(request()->input('message', 'Hello!'));
+    });
+});
+
+// ─── Quick Reference Examples ────────────────────────────────────────────
+
+Route::get('/tutorial/callback-basic', function () {
+    $agent = new TutorialChatAgent;
+
+    return response()->eventStream(function () use ($agent) {
+        $agent
+            ->onBeforeAction(fn ($tool) => yield new StreamedEvent(
+                event: 'action',
+                data: ['tool' => $tool, 'stage' => 'start']
+            ))
+            ->onAfterAction(fn ($tool, $args, $result) => yield new StreamedEvent(
+                event: 'action',
+                data: ['tool' => $tool, 'result' => $result, 'stage' => 'complete']
+            ))
+            ->onLoopComplete(fn ($response) => yield new StreamedEvent(
+                event: 'complete',
+                data: ['text' => $response->text]
+            ));
+
+        yield from $agent->reactLoopStream(request('message', 'What is the weather in Tokyo?'));
+    });
+});
+
+Route::get('/tutorial/callback-streaming', function () {
+    $agent = new TutorialChatAgent;
+
+    return response()->eventStream(function () use ($agent) {
+        // Stream thinking process
+        $agent->onBeforeThought(function (string $prompt, int $iteration) {
+            yield new StreamedEvent(
+                event: 'thinking',
+                data: ['iteration' => $iteration, 'stage' => 'start'],
+            );
+        });
+
+        // Stream thought results
+        $agent->onAfterThought(function ($response, int $iteration) {
+            yield new StreamedEvent(
+                event: 'thought',
+                data: [
+                    'iteration' => $iteration,
+                    'hasToolCalls' => $response->toolCalls->isNotEmpty(),
+                ],
+            );
+        });
+
+        // Stream final result
+        $agent->onLoopComplete(function ($response, int $iterations) {
+            yield new StreamedEvent(
+                event: 'complete',
+                data: ['text' => $response->text, 'iterations' => $iterations],
+            );
+        });
+
+        yield from $agent->reactLoopStream(request('message', 'Calculate 15 * 23'));
+    });
+});
+
+Route::get('/tutorial/multi-tool', function () {
+    $agent = new TutorialChatAgent;
+
+    return response()->eventStream(function () use ($agent) {
+        $toolsUsed = [];
+
+        $agent
+            ->onAfterAction(function (string $tool, array $args, string $result) use (&$toolsUsed) {
+                $toolsUsed[] = $tool;
+                yield new StreamedEvent(
+                    event: 'action',
+                    data: ['tool' => $tool, 'result' => $result, 'totalTools' => count($toolsUsed)],
+                );
+            })
+            ->onLoopComplete(function ($response) use (&$toolsUsed) {
+                yield new StreamedEvent(
+                    event: 'complete',
+                    data: [
+                        'text' => $response->text,
+                        'toolsUsed' => $toolsUsed,
+                        'toolCount' => count($toolsUsed),
+                    ],
+                );
+            });
+
+        yield from $agent->reactLoopStream(
+            request('message', 'What is the weather in Paris? Also calculate 10 + 20.')
+        );
+    });
+});
+
+Route::get('/tutorial/conversation-context', function () {
+    $agent = new TutorialChatAgent;
+    $conversationId = request('conversation_id');
+
+    if ($conversationId) {
+        $agent->withConversation($conversationId);
+    }
+
+    return response()->eventStream(function () use ($agent) {
+        $agent->onLoopComplete(function ($response, int $iterations) {
+            yield new StreamedEvent(
+                event: 'complete',
+                data: [
+                    'text' => $response->text,
+                    'conversationId' => $response->conversationId,
+                    'iterations' => $iterations,
+                ],
+            );
+        });
+
+        yield from $agent->reactLoopStream(request('message', 'Hello!'));
+    });
+});
+
+// ─── ReAct Loop Detailed Examples ───────────────────────────────────────
+
+Route::get('/tutorial/react-loop-basic', function () {
+    $agent = new ReActDemoAgent;
+
+    return response()->eventStream(function () use ($agent) {
+        $agent
+            ->onBeforeThought(function (string $prompt, int $iteration) {
+                yield new StreamedEvent(
+                    event: 'thinking',
+                    data: ['iteration' => $iteration],
+                );
+            })
+            ->onAfterAction(function (string $tool, array $args, string $result, int $iteration) {
+                yield new StreamedEvent(
+                    event: 'action',
+                    data: [
+                        'tool' => $tool,
+                        'result' => $result,
+                        'iteration' => $iteration,
+                    ],
+                );
+            })
+            ->onObservation(function (string $observation, int $iteration) {
+                yield new StreamedEvent(
+                    event: 'observation',
+                    data: ['text' => $observation, 'iteration' => $iteration],
+                );
+            })
+            ->onLoopComplete(function ($response, int $iterations) {
+                yield new StreamedEvent(
+                    event: 'complete',
+                    data: ['text' => $response->text, 'iterations' => $iterations],
+                );
+            });
+
+        yield from $agent->reactLoopStream(request('message', 'What is 25 * 4?'));
+    });
+});
+
+Route::get('/tutorial/react-loop-detailed', function () {
+    $agent = new ReActDemoAgent;
+
+    return response()->eventStream(function () use ($agent) {
+        try {
+            $agent
+                ->maxIterations(10)
+                ->onIterationStart(function (int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'iteration',
+                        data: ['number' => $iteration, 'status' => 'started'],
+                    );
+                })
+                ->onBeforeThought(function (string $prompt, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'thinking',
+                        data: ['iteration' => $iteration, 'prompt' => substr($prompt, 0, 100)],
+                    );
+                })
+                ->onAfterThought(function ($response, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'thought',
+                        data: [
+                            'iteration' => $iteration,
+                            'text' => $response->text,
+                            'hasToolCalls' => $response->toolCalls->isNotEmpty(),
+                            'toolCount' => $response->toolCalls->count(),
+                        ],
+                    );
+                })
+                ->onBeforeAction(function (string $tool, array $args, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'action',
+                        data: [
+                            'tool' => $tool,
+                            'args' => $args,
+                            'iteration' => $iteration,
+                            'stage' => 'start',
+                        ],
+                    );
+                })
+                ->onAfterAction(function (string $tool, array $args, string $result, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'action',
+                        data: [
+                            'tool' => $tool,
+                            'result' => $result,
+                            'iteration' => $iteration,
+                            'stage' => 'complete',
+                        ],
+                    );
+                })
+                ->onObservation(function (string $observation, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'observation',
+                        data: ['text' => $observation, 'iteration' => $iteration],
+                    );
+                })
+                ->onIterationEnd(function (int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'iteration',
+                        data: ['number' => $iteration, 'status' => 'completed'],
+                    );
+                })
+                ->onLoopComplete(function ($response, int $iterations) {
+                    yield new StreamedEvent(
+                        event: 'complete',
+                        data: [
+                            'text' => $response->text,
+                            'iterations' => $iterations,
+                            'conversationId' => $response->conversationId ?? null,
+                        ],
+                    );
+                })
+                ->onMaxIterationsReached(function ($response, int $iterations) {
+                    yield new StreamedEvent(
+                        event: 'max_iterations',
+                        data: [
+                            'iterations' => $iterations,
+                            'text' => $response?->text ?? 'Max iterations reached',
+                        ],
+                    );
+                });
+
+            yield from $agent->reactLoopStream(
+                request('message', 'Search for Laravel AI SDK and calculate 42 * 7')
+            );
+        } catch (\Throwable $e) {
+            logger()->error('ReAct loop error', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+            
+            yield new StreamedEvent(
+                event: 'error',
+                data: [
+                    'message' => $e->getMessage(),
+                    'type' => get_class($e),
+                ],
+            );
+        }
+    });
+});
+
+// ─── Plan-Execute Loop Examples ──────────────────────────────────────────
+
+Route::get('/tutorial/plan-execute-basic', function () {
+    $agent = new PlanExecuteDemoAgent;
+
+    return response()->eventStream(function () use ($agent) {
+        $agent
+            ->allowReplan()
+            ->maxSteps(8)
+            ->onPlanCreated(function (array $steps) {
+                yield new StreamedEvent(
+                    event: 'plan',
+                    data: ['steps' => $steps, 'count' => count($steps)],
+                );
+            })
+            ->onBeforeStep(function (int $stepNumber, string $description, int $totalSteps) {
+                yield new StreamedEvent(
+                    event: 'step',
+                    data: [
+                        'stage' => 'start',
+                        'number' => $stepNumber,
+                        'description' => $description,
+                        'total' => $totalSteps,
+                    ],
+                );
+            })
+            ->onAfterStep(function (int $stepNumber, string $description, $response, int $totalSteps) {
+                yield new StreamedEvent(
+                    event: 'step',
+                    data: [
+                        'stage' => 'complete',
+                        'number' => $stepNumber,
+                        'description' => $description,
+                        'total' => $totalSteps,
+                    ],
+                );
+            })
+            ->onBeforeSynthesis(function (array $stepResults) {
+                yield new StreamedEvent(
+                    event: 'synthesis',
+                    data: ['stage' => 'start', 'stepCount' => count($stepResults)],
+                );
+            })
+            ->onAfterSynthesis(function ($response) {
+                yield new StreamedEvent(
+                    event: 'synthesis',
+                    data: ['stage' => 'complete', 'text' => $response->text],
+                );
+            })
+            ->onLoopComplete(function ($response, int $totalSteps) {
+                yield new StreamedEvent(
+                    event: 'complete',
+                    data: [
+                        'text' => $response->text ?? 'Synthesis complete',
+                        'stepsExecuted' => $totalSteps,
+                        'conversationId' => $response->conversationId ?? null,
+                    ],
+                );
+            });
+
+        yield from $agent->planExecuteStream(
+            request('task', 'Research AI models and calculate the average temperature of Tokyo, London, and Paris')
+        );
+    });
+});
+
+Route::get('/tutorial/plan-execute-detailed', function () {
+    $agent = new PlanExecuteDemoAgent;
+
+    return response()->eventStream(function () use ($agent) {
+        try {
+            $agent
+                ->allowReplan()
+                ->maxSteps(10)
+                ->maxReplans(2)
+                ->onLoopStart(function (string $task) {
+                    yield new StreamedEvent(
+                        event: 'start',
+                        data: ['task' => $task],
+                    );
+                })
+                ->onPlanCreated(function (array $steps) {
+                    yield new StreamedEvent(
+                        event: 'plan',
+                        data: [
+                            'type' => 'initial',
+                            'steps' => $steps,
+                            'count' => count($steps),
+                        ],
+                    );
+                })
+                ->onBeforeStep(function (int $stepNumber, string $description, int $totalSteps) {
+                    yield new StreamedEvent(
+                        event: 'step',
+                        data: [
+                            'stage' => 'start',
+                            'number' => $stepNumber,
+                            'description' => $description,
+                            'total' => $totalSteps,
+                        ],
+                    );
+                })
+                ->onAfterStep(function (int $stepNumber, string $description, $response, int $totalSteps) {
+                    yield new StreamedEvent(
+                        event: 'step',
+                        data: [
+                            'stage' => 'complete',
+                            'number' => $stepNumber,
+                            'description' => $description,
+                            'result' => substr($response->text ?? '', 0, 200),
+                            'total' => $totalSteps,
+                        ],
+                    );
+                })
+                ->onReplan(function (array $newSteps, int $replanCount) {
+                    yield new StreamedEvent(
+                        event: 'replan',
+                        data: [
+                            'attempt' => $replanCount,
+                            'newSteps' => $newSteps,
+                            'count' => count($newSteps),
+                        ],
+                    );
+                })
+                ->onBeforeSynthesis(function (array $stepResults) {
+                    yield new StreamedEvent(
+                        event: 'synthesis',
+                        data: ['stage' => 'start', 'stepCount' => count($stepResults)],
+                    );
+                })
+                ->onAfterSynthesis(function ($response) {
+                    yield new StreamedEvent(
+                        event: 'synthesis',
+                        data: ['stage' => 'complete', 'text' => $response->text ?? ''],
+                    );
+                })
+                ->onLoopComplete(function ($response, int $totalSteps) {
+                    yield new StreamedEvent(
+                        event: 'complete',
+                        data: [
+                            'stepsExecuted' => $totalSteps,
+                            'text' => $response->text ?? 'Synthesis complete',
+                            'conversationId' => $response->conversationId ?? null,
+                        ],
+                    );
+                })
+                ->onMaxStepsReached(function ($response, int $stepsExecuted) {
+                    yield new StreamedEvent(
+                        event: 'max_steps',
+                        data: [
+                            'stepsExecuted' => $stepsExecuted,
+                            'text' => $response->text ?? 'Max steps reached',
+                        ],
+                    );
+                });
+
+            yield from $agent->planExecuteStream(
+                request('task', 'Compare weather in Tokyo and London, then calculate which is warmer by how many degrees')
+            );
+        } catch (\Throwable $e) {
+            logger()->error('Plan-Execute loop error', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+            
+            yield new StreamedEvent(
+                event: 'error',
+                data: [
+                    'message' => $e->getMessage(),
+                    'type' => get_class($e),
+                ],
+            );
+        }
+    });
+});
