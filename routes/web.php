@@ -2,16 +2,32 @@
 
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
-use Laravel\Fortify\Features;
 
 Route::get('/', function () {
     return Inertia::render('welcome', [
-        'canRegister' => Features::enabled(Features::registration()),
+        'demos' => [
+            [
+                'title' => 'Tutorial Chat',
+                'description' => 'Complete example with conversation context, streaming callbacks, and tool execution',
+                'url' => route('tutorial.chat'),
+            ],
+            [
+                'title' => 'ReAct Loop Demo',
+                'description' => 'Autonomous agent that reasons, acts, and observes in iterative cycles',
+                'url' => route('tutorial.react-loop'),
+            ],
+            [
+                'title' => 'Plan-Execute Demo',
+                'description' => 'Multi-step planning agent that breaks down complex tasks and executes them systematically',
+                'url' => route('tutorial.plan-execute'),
+            ],
+            [
+                'title' => 'Chain-of-Thought Demo',
+                'description' => 'Deep reasoning agent with iterative self-reflection and transparent thinking process',
+                'url' => route('tutorial.chain-of-thought'),
+            ],
+        ],
     ]);
 })->name('home');
-
-Route::get('dashboard', function () {
-    return Inertia::render('dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
 
 require __DIR__ . '/tutorial.php';

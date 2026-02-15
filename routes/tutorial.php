@@ -1,5 +1,6 @@
 <?php
 
+use App\Agents\ChainOfThoughtDemoAgent;
 use App\Agents\PlanExecuteDemoAgent;
 use App\Agents\ReActDemoAgent;
 use App\Agents\TutorialChatAgent;
@@ -30,6 +31,10 @@ Route::prefix('tutorial')->group(function () {
     Route::get('/plan-execute', function () {
         return Inertia::render('PlanExecuteDemo');
     })->name('tutorial.plan-execute');
+
+    Route::get('/chain-of-thought', function () {
+        return Inertia::render('ChainOfThoughtDemo');
+    })->name('tutorial.chain-of-thought');
 });
 
 // ─── Complete Example: Chat Agent with Conversation ─────────────────────
@@ -97,15 +102,15 @@ Route::get('/tutorial/callback-basic', function () {
 
     return response()->eventStream(function () use ($agent) {
         $agent
-            ->onBeforeAction(fn ($tool) => yield new StreamedEvent(
+            ->onBeforeAction(fn($tool) => yield new StreamedEvent(
                 event: 'action',
                 data: ['tool' => $tool, 'stage' => 'start']
             ))
-            ->onAfterAction(fn ($tool, $args, $result) => yield new StreamedEvent(
+            ->onAfterAction(fn($tool, $args, $result) => yield new StreamedEvent(
                 event: 'action',
                 data: ['tool' => $tool, 'result' => $result, 'stage' => 'complete']
             ))
-            ->onLoopComplete(fn ($response) => yield new StreamedEvent(
+            ->onLoopComplete(fn($response) => yield new StreamedEvent(
                 event: 'complete',
                 data: ['text' => $response->text]
             ));
@@ -337,7 +342,7 @@ Route::get('/tutorial/react-loop-detailed', function () {
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
             ]);
-            
+
             yield new StreamedEvent(
                 event: 'error',
                 data: [
@@ -514,7 +519,91 @@ Route::get('/tutorial/plan-execute-detailed', function () {
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
             ]);
-            
+
+            yield new StreamedEvent(
+                event: 'error',
+                data: [
+                    'message' => $e->getMessage(),
+                    'type' => get_class($e),
+                ],
+            );
+        }
+    });
+});
+
+// ─── Chain-of-Thought Loop Examples ─────────────────────────────────────
+
+Route::get('/tutorial/chain-of-thought-basic', function () {
+    $agent = new ChainOfThoughtDemoAgent;
+
+    return response()->eventStream(function () use ($agent) {
+        try {
+            $agent
+                ->maxReasoningIterations(6)
+                ->onIterationStart(function (int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'iteration',
+                        data: ['number' => $iteration, 'status' => 'started'],
+                    );
+                })
+                ->onAfterReasoning(function ($response, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'reasoning',
+                        data: [
+                            'iteration' => $iteration,
+                            'text' => $response->text,
+                            'hasToolCalls' => $response->toolCalls->isNotEmpty(),
+                        ],
+                    );
+                })
+                ->onBeforeAction(function (string $tool, array $args, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'action',
+                        data: [
+                            'tool' => $tool,
+                            'args' => $args,
+                            'iteration' => $iteration,
+                            'stage' => 'start',
+                        ],
+                    );
+                })
+                ->onAfterAction(function (string $tool, array $args, string $result, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'action',
+                        data: [
+                            'tool' => $tool,
+                            'result' => $result,
+                            'iteration' => $iteration,
+                            'stage' => 'complete',
+                        ],
+                    );
+                })
+                ->onReflection(function (string $reflectionPrompt, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'reflection',
+                        data: ['iteration' => $iteration],
+                    );
+                })
+                ->onLoopComplete(function ($response, int $iterations) {
+                    yield new StreamedEvent(
+                        event: 'complete',
+                        data: [
+                            'text' => $response->text,
+                            'iterations' => $iterations,
+                        ],
+                    );
+                });
+
+            yield from $agent->chainOfThoughtStream(
+                request('message', 'If a train travels 120 miles in 2 hours and another travels 180 miles in 3 hours, which is faster and by how much?')
+            );
+        } catch (\Throwable $e) {
+            logger()->error('Chain-of-Thought loop error', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
             yield new StreamedEvent(
                 event: 'error',
                 data: [

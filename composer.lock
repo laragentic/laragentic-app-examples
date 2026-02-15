@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "59c29b7e4cc75bfccd80fb99f2de3787",
+    "content-hash": "98ac7d0f6feafef9e4dcf4c19c7993b5",
     "packages": [
         {
             "name": "brick/math",
@@ -1124,16 +1124,16 @@
         },
         {
             "name": "laragentic/agents",
-            "version": "v0.0.1",
+            "version": "v0.1.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/laragentic/agents.git",
-                "reference": "16fd81331f3510974a2124c0db08ddde64140c8a"
+                "reference": "fc96aaddff0c10622b7e33e75f140d004a05e41b"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/laragentic/agents/zipball/16fd81331f3510974a2124c0db08ddde64140c8a",
-                "reference": "16fd81331f3510974a2124c0db08ddde64140c8a",
+                "url": "https://api.github.com/repos/laragentic/agents/zipball/fc96aaddff0c10622b7e33e75f140d004a05e41b",
+                "reference": "fc96aaddff0c10622b7e33e75f140d004a05e41b",
                 "shasum": ""
             },
             "require": {
@@ -1180,9 +1180,9 @@
             ],
             "support": {
                 "issues": "https://github.com/laragentic/agents/issues",
-                "source": "https://github.com/laragentic/agents/tree/v0.0.1"
+                "source": "https://github.com/laragentic/agents/tree/v0.1.0"
             },
-            "time": "2026-02-15T01:46:54+00:00"
+            "time": "2026-02-15T06:13:59+00:00"
         },
         {
             "name": "laravel/ai",
