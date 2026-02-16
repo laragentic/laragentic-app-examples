@@ -1,6 +1,7 @@
 <?php
 
 use App\Agents\ChainOfThoughtDemoAgent;
+use App\Agents\MakerDemoAgent;
 use App\Agents\PlanExecuteDemoAgent;
 use App\Agents\ReActDemoAgent;
 use App\Agents\TutorialChatAgent;
@@ -35,6 +36,10 @@ Route::prefix('tutorial')->group(function () {
     Route::get('/chain-of-thought', function () {
         return Inertia::render('ChainOfThoughtDemo');
     })->name('tutorial.chain-of-thought');
+
+    Route::get('/maker-loop', function () {
+        return Inertia::render('MakerLoopDemo');
+    })->name('tutorial.maker-loop');
 });
 
 // ─── Complete Example: Chat Agent with Conversation ─────────────────────
@@ -610,6 +615,335 @@ Route::get('/tutorial/chain-of-thought-basic', function () {
                     'message' => $e->getMessage(),
                     'type' => get_class($e),
                 ],
+            );
+        }
+    });
+});
+
+// ─── MAKER Loop Examples ─────────────────────────────────────────────
+
+Route::post('/tutorial/maker-loop-basic', function () {
+    set_time_limit(120); // Allow 2 minutes for MAKER loop
+    
+    return response()->eventStream(function () {
+        try {
+            $agent = new MakerDemoAgent;
+
+            $agent
+                ->votingK(2)
+                ->enableRedFlagging(true)
+                ->maxDecompositionDepth(2) // Reduced to prevent timeout
+                ->onLoopStart(function (string $prompt) {
+                    yield new StreamedEvent(
+                        event: 'start',
+                        data: ['prompt' => $prompt],
+                    );
+                })
+                ->onLoopComplete(function ($response, int $steps) {
+                    yield new StreamedEvent(
+                        event: 'complete',
+                        data: [
+                            'text' => $response->text,
+                            'total_steps' => $steps,
+                        ],
+                    );
+                });
+
+            $result = yield from $agent->makerLoopStream(
+                request('message', 'Calculate 5! step by step')
+            );
+
+            yield new StreamedEvent(
+                event: 'result',
+                data: [
+                    'text' => $result->text(),
+                    'stats' => $result->executionStats,
+                    'error_rate' => $result->errorRate(),
+                ],
+            );
+        } catch (\Throwable $e) {
+            logger()->error('MAKER loop basic error', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
+            yield new StreamedEvent(
+                event: 'error',
+                data: ['message' => $e->getMessage()],
+            );
+        }
+    });
+});
+
+Route::post('/tutorial/maker-loop-detailed', function () {
+    set_time_limit(120); // Allow 2 minutes for MAKER loop
+    
+    return response()->eventStream(function () {
+        try {
+            $agent = new MakerDemoAgent;
+
+            $agent
+                ->votingK((int) request('voting_k', 2)) // Default to K=2 for speed
+                ->enableRedFlagging((bool) request('red_flagging', true))
+                ->maxDecompositionDepth((int) request('max_depth', 2)) // Default to 2 for speed
+                ->maxMakerIterations((int) request('max_iterations', 50)) // Reduced default
+                ->onLoopStart(function (string $prompt) {
+                    yield new StreamedEvent(
+                        event: 'start',
+                        data: [
+                            'prompt' => $prompt,
+                            'stage' => 'starting',
+                        ],
+                    );
+                })
+                ->onDecomposition(function (array $subtasks, int $depth, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'decomposition',
+                        data: [
+                            'subtasks' => $subtasks,
+                            'count' => count($subtasks),
+                            'depth' => $depth,
+                            'iteration' => $iteration,
+                        ],
+                    );
+                })
+                ->onBeforeVote(function (string $prompt, int $voteNum, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'vote',
+                        data: [
+                            'vote_number' => $voteNum,
+                            'iteration' => $iteration,
+                            'stage' => 'before',
+                        ],
+                    );
+                })
+                ->onAfterVote(function (string $response, int $voteNum, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'vote',
+                        data: [
+                            'vote_number' => $voteNum,
+                            'iteration' => $iteration,
+                            'stage' => 'after',
+                            'response_preview' => substr($response, 0, 100),
+                        ],
+                    );
+                })
+                ->onConsensus(function (string $winner, int $votes, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'consensus',
+                        data: [
+                            'votes' => $votes,
+                            'iteration' => $iteration,
+                            'winner_preview' => substr($winner, 0, 100),
+                        ],
+                    );
+                })
+                ->onRedFlag(function (string $response, float $score, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'red_flag',
+                        data: [
+                            'score' => $score,
+                            'iteration' => $iteration,
+                            'response_preview' => substr($response, 0, 100),
+                        ],
+                    );
+                })
+                ->onAtomicExecution(function (string $task, string $result, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'atomic_execution',
+                        data: [
+                            'task' => substr($task, 0, 100),
+                            'result' => substr($result, 0, 100),
+                            'iteration' => $iteration,
+                        ],
+                    );
+                })
+                ->onComposition(function (string $task, string $result, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'composition',
+                        data: [
+                            'task' => substr($task, 0, 100),
+                            'result' => substr($result, 0, 100),
+                            'iteration' => $iteration,
+                        ],
+                    );
+                })
+                ->onLoopComplete(function ($response, int $steps) {
+                    yield new StreamedEvent(
+                        event: 'complete',
+                        data: [
+                            'text' => $response->text,
+                            'total_steps' => $steps,
+                        ],
+                    );
+                });
+
+            $result = yield from $agent->makerLoopStream(
+                request('message', 'Calculate (5! + 3!) × 2')
+            );
+
+            yield new StreamedEvent(
+                event: 'final_result',
+                data: [
+                    'text' => $result->text(),
+                    'stats' => $result->executionStats,
+                    'error_rate' => $result->errorRate(),
+                    'max_depth' => $result->maxDepthReached(),
+                    'step_summaries' => $result->stepSummaries(),
+                ],
+            );
+        } catch (\Throwable $e) {
+            logger()->error('MAKER loop detailed error', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
+            yield new StreamedEvent(
+                event: 'error',
+                data: [
+                    'message' => $e->getMessage(),
+                    'type' => get_class($e),
+                ],
+            );
+        }
+    });
+});
+
+Route::post('/tutorial/maker-loop-streaming', function () {
+    set_time_limit(120); // Allow 2 minutes for MAKER loop
+    
+    return response()->eventStream(function () {
+        try {
+            $agent = new MakerDemoAgent;
+
+            $agent
+                ->votingK(2)
+                ->enableRedFlagging(true)
+                ->maxDecompositionDepth(2) // Reduced to prevent timeout
+                ->onBeforeVote(function () {
+                    yield new StreamedEvent(
+                        event: 'progress',
+                        data: ['status' => 'voting'],
+                    );
+                })
+                ->onConsensus(function () {
+                    yield new StreamedEvent(
+                        event: 'progress',
+                        data: ['status' => 'consensus_reached'],
+                    );
+                })
+                ->onAtomicExecution(function ($task, $result) {
+                    yield new StreamedEvent(
+                        event: 'progress',
+                        data: [
+                            'status' => 'executed',
+                            'result_preview' => substr($result, 0, 50),
+                        ],
+                    );
+                });
+
+            $result = yield from $agent->makerLoopStream(
+                request('message', 'Calculate 6! step by step')
+            );
+
+            yield new StreamedEvent(
+                event: 'final',
+                data: [
+                    'text' => $result->text(),
+                    'steps' => $result->totalSteps,
+                    'error_rate' => $result->errorRate(),
+                ],
+            );
+        } catch (\Throwable $e) {
+            logger()->error('MAKER loop streaming error', [
+                'message' => $e->getMessage(),
+            ]);
+
+            yield new StreamedEvent(
+                event: 'error',
+                data: ['message' => $e->getMessage()],
+            );
+        }
+    });
+});
+
+Route::post('/tutorial/maker-loop-comparison', function () {
+    set_time_limit(180); // Allow 3 minutes for comparison (runs 2 loops)
+    
+    return response()->eventStream(function () {
+        try {
+            $task = request('message', 'Calculate 5!');
+            $results = [];
+
+            // Test with K=2
+            yield new StreamedEvent(
+                event: 'testing',
+                data: ['k' => 2, 'stage' => 'starting'],
+            );
+
+            $agentK2 = new MakerDemoAgent;
+            $resultK2 = $agentK2
+                ->votingK(2)
+                ->maxDecompositionDepth(1) // Very limited for speed
+                ->makerLoop($task);
+
+            $results['k2'] = [
+                'text' => $resultK2->text(),
+                'votes_cast' => $resultK2->executionStats['votes_cast'],
+                'error_rate' => $resultK2->errorRate(),
+                'steps' => $resultK2->totalSteps,
+            ];
+
+            yield new StreamedEvent(
+                event: 'result',
+                data: ['k' => 2, 'result' => $results['k2']],
+            );
+
+            // Test with K=3
+            yield new StreamedEvent(
+                event: 'testing',
+                data: ['k' => 3, 'stage' => 'starting'],
+            );
+
+            $agentK3 = new MakerDemoAgent;
+            $resultK3 = $agentK3
+                ->votingK(3)
+                ->maxDecompositionDepth(1) // Very limited for speed
+                ->makerLoop($task);
+
+            $results['k3'] = [
+                'text' => $resultK3->text(),
+                'votes_cast' => $resultK3->executionStats['votes_cast'],
+                'error_rate' => $resultK3->errorRate(),
+                'steps' => $resultK3->totalSteps,
+            ];
+
+            yield new StreamedEvent(
+                event: 'result',
+                data: ['k' => 3, 'result' => $results['k3']],
+            );
+
+            // Send comparison summary
+            yield new StreamedEvent(
+                event: 'comparison',
+                data: [
+                    'results' => $results,
+                    'analysis' => [
+                        'k3_more_votes' => $results['k3']['votes_cast'] > $results['k2']['votes_cast'],
+                        'k3_lower_error' => $results['k3']['error_rate'] <= $results['k2']['error_rate'],
+                    ],
+                ],
+            );
+        } catch (\Throwable $e) {
+            logger()->error('MAKER loop comparison error', [
+                'message' => $e->getMessage(),
+            ]);
+
+            yield new StreamedEvent(
+                event: 'error',
+                data: ['message' => $e->getMessage()],
             );
         }
     });
