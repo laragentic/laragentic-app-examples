@@ -1,10 +1,12 @@
 <?php
 
 use App\Agents\ChainOfThoughtDemoAgent;
+use App\Agents\McpChatDemoAgent;
 use App\Agents\PlanExecuteDemoAgent;
 use App\Agents\ReActDemoAgent;
 use App\Agents\TutorialChatAgent;
 use Illuminate\Http\StreamedEvent;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -35,6 +37,10 @@ Route::prefix('tutorial')->group(function () {
     Route::get('/chain-of-thought', function () {
         return Inertia::render('ChainOfThoughtDemo');
     })->name('tutorial.chain-of-thought');
+
+    Route::get('/mcp-chat', function () {
+        return Inertia::render('McpChatDemo');
+    })->name('tutorial.mcp-chat');
 });
 
 // ─── Complete Example: Chat Agent with Conversation ─────────────────────
@@ -613,4 +619,121 @@ Route::get('/tutorial/chain-of-thought-basic', function () {
             );
         }
     });
+});
+
+// ─── MCP Chat Demo Examples ─────────────────────────────────────────────
+
+Route::get('/tutorial/mcp-chat-stream', function () {
+    $agent = new McpChatDemoAgent;
+    $conversationId = request()->input('conversation_id');
+
+    if ($conversationId) {
+        $agent->withConversation($conversationId);
+    }
+
+    return response()->eventStream(function () use ($agent) {
+        try {
+            $agent
+                ->onBeforeAction(function (string $tool, array $args, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'action',
+                        data: [
+                            'tool' => $tool,
+                            'args' => $args,
+                            'iteration' => $iteration,
+                            'stage' => 'start',
+                        ],
+                    );
+                })
+                ->onAfterAction(function (string $tool, array $args, string $result, int $iteration) {
+                    // Check if the result contains an elicitation request
+                    $decoded = json_decode($result, true);
+                    if (is_array($decoded) && ($decoded['status'] ?? '') === 'elicitation_required') {
+                        yield new StreamedEvent(
+                            event: 'elicitation',
+                            data: [
+                                'type' => $decoded['type'],
+                                'elicitation_id' => $decoded['elicitation_id'],
+                                'message' => $decoded['message'],
+                                'requested_schema' => $decoded['requested_schema'] ?? null,
+                                'url' => $decoded['url'] ?? null,
+                                'tool' => $tool,
+                                'iteration' => $iteration,
+                            ],
+                        );
+                    }
+
+                    yield new StreamedEvent(
+                        event: 'action',
+                        data: [
+                            'tool' => $tool,
+                            'result' => $result,
+                            'iteration' => $iteration,
+                            'stage' => 'complete',
+                        ],
+                    );
+                })
+                ->onObservation(function (string $observation, int $iteration) {
+                    yield new StreamedEvent(
+                        event: 'observation',
+                        data: [
+                            'text' => $observation,
+                            'iteration' => $iteration,
+                        ],
+                    );
+                })
+                ->onLoopComplete(function ($response, int $iterations) {
+                    yield new StreamedEvent(
+                        event: 'complete',
+                        data: [
+                            'text' => $response->text,
+                            'iterations' => $iterations,
+                            'conversationId' => $response->conversationId,
+                        ],
+                    );
+                });
+
+            yield from $agent->reactLoopStream(request()->input('message', 'Hello!'));
+        } catch (\Throwable $e) {
+            logger()->error('MCP Chat error', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
+            yield new StreamedEvent(
+                event: 'error',
+                data: [
+                    'message' => $e->getMessage(),
+                    'type' => get_class($e),
+                ],
+            );
+        }
+    });
+});
+
+// Handle elicitation form submission (simulates MCP elicitation response)
+Route::post('/tutorial/mcp-chat-elicitation', function () {
+    $action = request()->input('action', 'accept');
+    $data = request()->input('data', []);
+    $elicitationId = request()->input('elicitation_id');
+
+    if ($action === 'accept' && ! empty($data)) {
+        // Store the credentials in cache (simulates MCP server receiving elicitation response)
+        Cache::put('mcp_demo_cloud_credentials', true, now()->addMinutes(30));
+    }
+
+    return response()->json([
+        'status' => 'ok',
+        'action' => $action,
+        'elicitation_id' => $elicitationId,
+        'credentials_stored' => $action === 'accept',
+    ]);
+});
+
+// Reset credentials (for demo purposes)
+Route::post('/tutorial/mcp-chat-reset', function () {
+    Cache::forget('mcp_demo_cloud_credentials');
+
+    return response()->json(['status' => 'ok', 'message' => 'Cloud credentials cleared']);
 });

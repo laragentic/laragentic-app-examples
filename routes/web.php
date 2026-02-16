@@ -26,6 +26,11 @@ Route::get('/', function () {
                 'description' => 'Deep reasoning agent with iterative self-reflection and transparent thinking process',
                 'url' => route('tutorial.chain-of-thought'),
             ],
+            [
+                'title' => 'MCP Chat Demo',
+                'description' => 'Project management agent with MCP-style elicitation, dynamic forms, and tool orchestration',
+                'url' => route('tutorial.mcp-chat'),
+            ],
         ],
     ]);
 })->name('home');
