@@ -10,6 +10,8 @@
 /storage/*.key
 /storage/pail
 /vendor
+/mcp-sidecar/node_modules
+/mcp-sidecar/dist
 .env
 .env.backup
 .env.production

@@ -10,8 +10,11 @@ set_time_limit(300);
 
 use App\Tools\CreateProjectTool;
 use App\Tools\DeployProjectTool;
+use App\Tools\ConnectRepositoryTool;
+use App\Tools\IncidentEscalationTool;
 use App\Tools\ListProjectsTool;
 use App\Tools\SearchTool;
+use App\Tools\SecurityReviewTool;
 use Laravel\Ai\Concerns\RemembersConversations;
 use Laravel\Ai\Contracts\Agent;
 use Laravel\Ai\Contracts\Conversational;
@@ -33,6 +36,9 @@ class McpChatDemoAgent implements Agent, Conversational, HasTools
         - **Create Projects**: Create new projects with various templates (default, api-only, fullstack, microservice)
         - **List Projects**: View all existing projects and their statuses
         - **Deploy Projects**: Deploy projects to cloud environments (staging, production, development)
+        - **Security Reviews**: Collect release-risk details via elicitation forms
+        - **Repository Connections**: Trigger URL authorization flows for repo access
+        - **Incident Escalation**: Collect escalation policy details through forms
         - **Search**: Look up information about technologies and best practices
 
         ## Workflow Guidelines
@@ -48,6 +54,12 @@ class McpChatDemoAgent implements Agent, Conversational, HasTools
         - When you see an elicitation_required status, explain to the user that they need to provide credentials
         - Tell them a form will appear where they can enter their cloud API key and region
         - After credentials are provided, retry the deployment
+
+        ### Other Elicitation Flows
+        - Security review and incident escalation may also request structured form input
+        - Repository connection may request URL-based authorization
+        - When elicitation is requested, tell the user the UI will prompt them to continue
+        - After they complete the prompt, continue with the same task
 
         ### Error Handling
         - If a tool returns an error about missing credentials, inform the user clearly
@@ -67,6 +79,9 @@ class McpChatDemoAgent implements Agent, Conversational, HasTools
         return [
             new CreateProjectTool,
             new DeployProjectTool,
+            new SecurityReviewTool,
+            new ConnectRepositoryTool,
+            new IncidentEscalationTool,
             new ListProjectsTool,
             new SearchTool,
         ];

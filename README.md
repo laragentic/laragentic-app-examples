@@ -94,10 +94,42 @@ This single command starts:
 - Queue worker
 - Log viewer (`php artisan pail`)
 - Vite dev server with hot reload
+- MCP sidecar (`npm run dev:mcp`) for MCP Apps + MCP-UI mode
 
 Visit `http://localhost:8000` to see the examples.
 
 > **Alternative:** For production builds, run `npm run build` and then `php artisan serve` separately.
+
+## MCP Apps + MCP-UI Mode
+
+The `MCP Chat Demo` now has two modes:
+
+- **Legacy (SSE)** - existing Laravel streaming route + custom elicitation UI
+- **MCP Apps** - connects to the local sidecar MCP endpoint and renders resources with:
+  - `UIResourceRenderer`
+  - `AppRenderer`
+
+### Configure GitHub OAuth for sidecar
+
+Set these environment variables in `.env`:
+
+```env
+VITE_MCP_APPS_URL=http://127.0.0.1:3232/mcp
+VITE_MCP_OAUTH_AUTHORIZE_URL=http://127.0.0.1:3232/oauth/authorize
+VITE_MCP_UI_MODE_DEFAULT=mcp-apps
+
+MCP_APPS_BASE_URL=http://127.0.0.1:3232
+MCP_ALLOWED_ORIGINS=http://127.0.0.1:8000,http://localhost:8000
+MCP_OAUTH_ENCRYPTION_KEY=change-me-local-dev-only
+GITHUB_CLIENT_ID=your-github-oauth-app-client-id
+GITHUB_CLIENT_SECRET=your-github-oauth-app-client-secret
+```
+
+GitHub OAuth callback URL should be:
+
+```text
+http://127.0.0.1:3232/oauth/callback/github
+```
 
 ## Project Structure
 

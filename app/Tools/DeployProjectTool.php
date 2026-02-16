@@ -35,9 +35,9 @@ class DeployProjectTool implements Tool
         }
 
         // Check if cloud credentials exist (simulating MCP elicitation trigger)
-        $hasCredentials = Cache::get('mcp_demo_cloud_credentials', false);
+        $credentials = Cache::get('mcp_demo_cloud_credentials', null);
 
-        if (! $hasCredentials) {
+        if (! $credentials) {
             return json_encode([
                 'status' => 'elicitation_required',
                 'type' => 'form',
@@ -70,8 +70,10 @@ class DeployProjectTool implements Tool
             ]);
         }
 
-        // Simulate successful deployment
+        // Simulate successful deployment using the provided credentials
         $deploymentId = 'deploy_' . substr(md5($projectId . time()), 0, 8);
+        $region = $credentials['region'] ?? 'us-east-1';
+        $autoScale = $credentials['auto_scale'] ?? true;
 
         return json_encode([
             'status' => 'deployed',
@@ -79,10 +81,12 @@ class DeployProjectTool implements Tool
                 'id' => $deploymentId,
                 'project_id' => $projectId,
                 'environment' => $environment,
-                'url' => "https://{$projectId}.{$environment}.example.cloud",
+                'region' => $region,
+                'auto_scaling' => $autoScale,
+                'url' => "https://{$projectId}.{$environment}.{$region}.example.cloud",
                 'deployed_at' => now()->toIso8601String(),
             ],
-            'message' => "Project {$projectId} deployed successfully to {$environment}. URL: https://{$projectId}.{$environment}.example.cloud",
+            'message' => "Project {$projectId} deployed successfully to {$environment} in {$region} (auto-scaling: " . ($autoScale ? 'enabled' : 'disabled') . "). URL: https://{$projectId}.{$environment}.{$region}.example.cloud",
         ]);
     }
 

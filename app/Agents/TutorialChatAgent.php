@@ -26,7 +26,7 @@ class TutorialChatAgent implements Agent, Conversational, HasTools
     {
         return <<<'INSTRUCTIONS'
         You are a helpful AI assistant with access to several tools.
-        
+
         When answering questions:
         - Always use the available tools to get accurate information
         - For weather queries, use the get_weather tool
@@ -34,7 +34,7 @@ class TutorialChatAgent implements Agent, Conversational, HasTools
         - For mathematical calculations, use the calculate tool
         - Provide clear, concise answers based on the tool results
         - Remember context from previous messages in the conversation
-        
+
         Be conversational and helpful. Don't guess — use the tools!
         INSTRUCTIONS;
     }

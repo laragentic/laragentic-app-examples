@@ -49,9 +49,36 @@ Route::get('/tutorial/complete-example', function () {
     $agent = new TutorialChatAgent;
     $conversationId = request()->input('conversation_id');
 
+    // Log the incoming request
+    \Log::info('Tutorial chat request', [
+        'conversation_id' => $conversationId,
+        'message' => request()->input('message'),
+        'session_id' => request()->session()->getId(),
+    ]);
+
+    // Create a guest user object for conversation tracking
+    // In a real app, you'd use auth()->user()
+    // Using a fixed guest ID since session IDs may not persist across requests
+    $guestUser = (object) [
+        'id' => 'tutorial-guest-user',
+        'name' => 'Guest',
+    ];
+
     if ($conversationId) {
-        $agent->withConversation($conversationId);
+        // Continue existing conversation
+        \Log::info('Continuing conversation', ['conversation_id' => $conversationId, 'user_id' => $guestUser->id]);
+        $agent->continue($conversationId, $guestUser);
+    } else {
+        // Start new conversation for this user
+        \Log::info('Starting new conversation', ['user_id' => $guestUser->id]);
+        $agent->forUser($guestUser);
     }
+
+    \Log::info('Agent conversation state', [
+        'has_participant' => $agent->hasConversationParticipant(),
+        'current_conversation' => $agent->currentConversation(),
+        'participant_id' => $agent->conversationParticipant()?->id,
+    ]);
 
     return response()->eventStream(function () use ($agent) {
         $agent
@@ -86,13 +113,20 @@ Route::get('/tutorial/complete-example', function () {
                     ],
                 );
             })
-            ->onLoopComplete(function ($response, int $iterations) {
+            ->onLoopComplete(function ($response, int $iterations) use ($agent) {
+                $conversationId = $response->conversationId ?? 'NO_CONVERSATION_ID';
+                
                 yield new StreamedEvent(
                     event: 'complete',
                     data: [
                         'text' => $response->text,
                         'iterations' => $iterations,
-                        'conversationId' => $response->conversationId,
+                        'conversationId' => $conversationId,
+                        'debug' => [
+                            'hasConversationId' => $response->conversationId !== null,
+                            'conversationIdValue' => $conversationId,
+                            'participantId' => $agent->conversationParticipant()?->id,
+                        ],
                     ],
                 );
             });
@@ -627,8 +661,16 @@ Route::get('/tutorial/mcp-chat-stream', function () {
     $agent = new McpChatDemoAgent;
     $conversationId = request()->input('conversation_id');
 
+    // Create a guest user object for conversation tracking
+    $guestUser = (object) [
+        'id' => 'mcp-demo-guest-user',
+        'name' => 'Guest',
+    ];
+
     if ($conversationId) {
-        $agent->withConversation($conversationId);
+        $agent->continue($conversationId, $guestUser);
+    } else {
+        $agent->forUser($guestUser);
     }
 
     return response()->eventStream(function () use ($agent) {
@@ -717,23 +759,44 @@ Route::post('/tutorial/mcp-chat-elicitation', function () {
     $action = request()->input('action', 'accept');
     $data = request()->input('data', []);
     $elicitationId = request()->input('elicitation_id');
+    $tool = request()->input('tool');
+
+    // Store generic elicitation response by tool so demo tools can continue after form/url completion.
+    if ($action === 'accept' && ! empty($tool)) {
+        Cache::put("mcp_demo_elicitation_{$tool}", [
+            'tool' => $tool,
+            'data' => $data,
+            'stored_at' => now()->toIso8601String(),
+        ], now()->addMinutes(30));
+    }
 
     if ($action === 'accept' && ! empty($data)) {
-        // Store the credentials in cache (simulates MCP server receiving elicitation response)
-        Cache::put('mcp_demo_cloud_credentials', true, now()->addMinutes(30));
+        // Store the actual credentials in cache (simulates MCP server receiving elicitation response)
+        Cache::put('mcp_demo_cloud_credentials', [
+            'api_key' => $data['api_key'] ?? null,
+            'region' => $data['region'] ?? null,
+            'auto_scale' => $data['auto_scale'] ?? true,
+            'stored_at' => now()->toIso8601String(),
+        ], now()->addMinutes(30));
     }
 
     return response()->json([
         'status' => 'ok',
         'action' => $action,
+        'tool' => $tool,
         'elicitation_id' => $elicitationId,
         'credentials_stored' => $action === 'accept',
+        'data' => $action === 'accept' ? $data : null,
     ]);
 });
 
 // Reset credentials (for demo purposes)
 Route::post('/tutorial/mcp-chat-reset', function () {
     Cache::forget('mcp_demo_cloud_credentials');
+    Cache::forget('mcp_demo_elicitation_deploy_project');
+    Cache::forget('mcp_demo_elicitation_security_review');
+    Cache::forget('mcp_demo_elicitation_connect_repository');
+    Cache::forget('mcp_demo_elicitation_incident_escalation');
 
     return response()->json(['status' => 'ok', 'message' => 'Cloud credentials cleared']);
 });

@@ -1,6 +1,10 @@
 import { Head } from '@inertiajs/react';
 import { useEventStream } from '@laravel/stream-react';
+import axios from 'axios';
 import { useState, useCallback, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import McpAppsPanel from './components/McpAppsPanel';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -50,6 +54,9 @@ type SchemaProperty = {
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export default function McpChatDemo() {
+    const [mode, setMode] = useState<'legacy' | 'mcp-apps'>(
+        (import.meta.env.VITE_MCP_UI_MODE_DEFAULT as 'legacy' | 'mcp-apps' | undefined) ?? 'legacy',
+    );
     const [input, setInput] = useState('');
     const [messages, setMessages] = useState<Message[]>([]);
     const [conversationId, setConversationId] = useState<string | null>(null);
@@ -58,9 +65,14 @@ export default function McpChatDemo() {
     const [events, setEvents] = useState<Event[]>([]);
     const [showEvents, setShowEvents] = useState(false);
     const [elicitation, setElicitation] = useState<ElicitationData | null>(null);
+    const [pendingRetryMessage, setPendingRetryMessage] = useState<string | null>(null);
+    const [pendingRetryId, setPendingRetryId] = useState<string | null>(null);
+    const [elicitationSubmitError, setElicitationSubmitError] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const eventsEndRef = useRef<HTMLDivElement>(null);
     const eventIdRef = useRef(0);
+    const retrySequenceRef = useRef(0);
+    const dispatchedRetryIdRef = useRef<string | null>(null);
 
     // Auto-scroll messages
     useEffect(() => {
@@ -88,6 +100,7 @@ export default function McpChatDemo() {
         // Handle different event types
         if (event.type === 'action') {
             if (eventData.stage === 'start') {
+                setElicitationSubmitError(null);
                 setMessages(prev => {
                     const lastMsg = prev[prev.length - 1];
                     if (lastMsg?.isStreaming) {
@@ -181,9 +194,10 @@ export default function McpChatDemo() {
         });
     }, []);
 
-    const handleSend = (messageText?: string) => {
+    const handleSend = useCallback((messageText?: string) => {
         const text = messageText || input.trim();
         if (!text || isStreaming) return;
+        setElicitationSubmitError(null);
 
         // Add user message
         const userMessage: Message = {
@@ -213,42 +227,74 @@ export default function McpChatDemo() {
         }
         setStreamUrl(`/tutorial/mcp-chat-stream?${params.toString()}`);
         if (!messageText) setInput('');
-    };
+    }, [conversationId, input, isStreaming]);
+
+    useEffect(() => {
+        if (!pendingRetryMessage || !pendingRetryId || isStreaming || elicitation !== null) {
+            return;
+        }
+
+        if (dispatchedRetryIdRef.current === pendingRetryId) {
+            return;
+        }
+
+        dispatchedRetryIdRef.current = pendingRetryId;
+        handleSend(pendingRetryMessage);
+        setPendingRetryMessage(null);
+        setPendingRetryId(null);
+    }, [handleSend, isStreaming, pendingRetryId, pendingRetryMessage, elicitation]);
 
     const handleElicitationSubmit = useCallback(async (elicitationId: string, action: string, data: Record<string, any> | null) => {
+        const previousElicitation = elicitation;
+        setElicitationSubmitError(null);
         setElicitation(null);
+        const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content || '';
 
         // Submit elicitation response to backend
         try {
-            const response = await fetch('/tutorial/mcp-chat-elicitation', {
-                method: 'POST',
+            await axios.post('/tutorial/mcp-chat-elicitation', {
+                elicitation_id: elicitationId,
+                action,
+                data,
+                tool: previousElicitation?.tool ?? null,
+            }, {
+                withCredentials: true,
                 headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content || '',
-                },
-                body: JSON.stringify({
-                    elicitation_id: elicitationId,
-                    action,
-                    data,
-                }),
+                    'X-CSRF-TOKEN': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest',
+                }
             });
 
-            if (response.ok && action === 'accept') {
-                // After credentials are stored, prompt the agent to retry
-                handleSend('I have provided the cloud credentials. Please retry the deployment.');
+            if (action === 'accept') {
+                const completedTool = previousElicitation?.tool ?? 'requested_tool';
+                const nextRetryId = `retry_${++retrySequenceRef.current}`;
+                setPendingRetryId(nextRetryId);
+                setPendingRetryMessage(`I have completed the requested information for ${completedTool}. Please continue.`);
             }
         } catch (err) {
+            if (previousElicitation) {
+                setElicitation(previousElicitation);
+            }
             console.error('Elicitation submission failed:', err);
+            if (axios.isAxiosError(err)) {
+                const status = err.response?.status;
+                if (status) {
+                    setElicitationSubmitError(`Unable to submit credentials (${status}). Please try again.`);
+                    return;
+                }
+            }
+            setElicitationSubmitError('Unable to submit credentials. Please check your connection and try again.');
         }
-    }, [conversationId, isStreaming]);
+    }, [elicitation]);
 
     const handleResetCredentials = useCallback(async () => {
         try {
-            await fetch('/tutorial/mcp-chat-reset', {
-                method: 'POST',
+            const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content || '';
+            await axios.post('/tutorial/mcp-chat-reset', {}, {
+                withCredentials: true,
                 headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content || '',
+                    'X-CSRF-TOKEN': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest',
                 },
             });
         } catch (err) {
@@ -261,7 +307,11 @@ export default function McpChatDemo() {
         setConversationId(null);
         setEvents([]);
         setElicitation(null);
+        setPendingRetryMessage(null);
+        setPendingRetryId(null);
+        setElicitationSubmitError(null);
         eventIdRef.current = 0;
+        dispatchedRetryIdRef.current = null;
         handleResetCredentials();
     };
 
@@ -274,7 +324,7 @@ export default function McpChatDemo() {
         <>
             <Head title="MCP Chat Demo" />
 
-            {streamUrl && (
+            {mode === 'legacy' && streamUrl && (
                 <StreamListener
                     url={streamUrl}
                     onEvent={handleEvent}
@@ -287,6 +337,20 @@ export default function McpChatDemo() {
                 <div className="mx-auto max-w-7xl">
                     {/* Header */}
                     <div className="mb-6">
+                        <div className="mb-3 flex flex-wrap items-center gap-2">
+                            <button
+                                onClick={() => setMode('legacy')}
+                                className={`rounded px-3 py-1.5 text-sm ${mode === 'legacy' ? 'bg-primary text-primary-foreground' : 'border border-input'}`}
+                            >
+                                Legacy (SSE)
+                            </button>
+                            <button
+                                onClick={() => setMode('mcp-apps')}
+                                className={`rounded px-3 py-1.5 text-sm ${mode === 'mcp-apps' ? 'bg-primary text-primary-foreground' : 'border border-input'}`}
+                            >
+                                MCP Apps
+                            </button>
+                        </div>
                         <div className="flex items-start justify-between">
                             <div>
                                 <h1 className="text-3xl font-bold text-foreground">MCP Chat Demo</h1>
@@ -310,7 +374,7 @@ export default function McpChatDemo() {
                                 </button>
                             </div>
                         </div>
-                        {conversationId && (
+                        {mode === 'legacy' && conversationId && (
                             <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
                                 <span className="rounded bg-muted px-2 py-1 font-mono text-xs">
                                     {conversationId.substring(0, 8)}...
@@ -320,7 +384,7 @@ export default function McpChatDemo() {
                         )}
 
                         {/* Quick actions */}
-                        <div className="mt-3 flex flex-wrap gap-2">
+                        {mode === 'legacy' && <div className="mt-3 flex flex-wrap gap-2">
                             <QuickAction
                                 label="List projects"
                                 onClick={() => handleSend('Show me all my projects')}
@@ -336,9 +400,32 @@ export default function McpChatDemo() {
                                 onClick={() => handleSend('Deploy project proj_a1b2c3d4 to staging')}
                                 disabled={isStreaming}
                             />
-                        </div>
+                            <QuickAction
+                                label="Security review form"
+                                onClick={() => handleSend('Run a security review for project proj_a1b2c3d4.')}
+                                disabled={isStreaming}
+                            />
+                            <QuickAction
+                                label="Repository auth URL"
+                                onClick={() => handleSend('Connect repository access for project proj_e5f6g7h8 using GitHub.')}
+                                disabled={isStreaming}
+                            />
+                            <QuickAction
+                                label="Incident escalation form"
+                                onClick={() => handleSend('Create an incident escalation plan for service api-gateway.')}
+                                disabled={isStreaming}
+                            />
+                        </div>}
+                        {mode === 'legacy' && pendingRetryMessage && (
+                            <p className="mt-3 text-sm text-amber-700 dark:text-amber-300">
+                                Credentials saved. Retrying deployment...
+                            </p>
+                        )}
                     </div>
 
+                    {mode === 'mcp-apps' ? (
+                        <McpAppsPanel />
+                    ) : (
                     <div className="grid gap-6" style={{ gridTemplateColumns: showEvents ? '2fr 1fr' : '1fr' }}>
                         {/* Chat Area */}
                         <div className="relative flex flex-col rounded-xl border border-border bg-card shadow-sm" style={{ height: 'calc(100vh - 280px)' }}>
@@ -373,6 +460,7 @@ export default function McpChatDemo() {
                                     elicitation={elicitation}
                                     onSubmit={handleElicitationSubmit}
                                     onCancel={() => handleElicitationSubmit(elicitation.elicitation_id, 'cancel', null)}
+                                    submitError={elicitationSubmitError}
                                 />
                             )}
 
@@ -381,6 +469,7 @@ export default function McpChatDemo() {
                                     elicitation={elicitation}
                                     onComplete={(id) => handleElicitationSubmit(id, 'accept', null)}
                                     onCancel={() => handleElicitationSubmit(elicitation.elicitation_id, 'cancel', null)}
+                                    submitError={elicitationSubmitError}
                                 />
                             )}
 
@@ -453,6 +542,7 @@ export default function McpChatDemo() {
                             </div>
                         )}
                     </div>
+                    )}
                 </div>
             </div>
         </>
@@ -476,6 +566,25 @@ function QuickAction({ label, onClick, disabled }: { label: string; onClick: () 
 // ─── Message Bubble Component ───────────────────────────────────────────────
 
 function MessageBubble({ message }: { message: Message }) {
+    const markdownComponents = {
+        table: ({ children }: { children?: React.ReactNode }) => (
+            <div className="my-2 w-full overflow-x-auto">
+                <table className="w-full min-w-max border-collapse">{children}</table>
+            </div>
+        ),
+        th: ({ children }: { children?: React.ReactNode }) => (
+            <th className="border-b border-border px-3 py-2 text-left font-semibold whitespace-nowrap">{children}</th>
+        ),
+        td: ({ children }: { children?: React.ReactNode }) => (
+            <td className="border-b border-border/60 px-3 py-2 align-top">{children}</td>
+        ),
+        a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
+            <a href={href} target="_blank" rel="noreferrer" className="break-all underline">
+                {children}
+            </a>
+        ),
+    };
+
     return (
         <div className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[80%] rounded-lg px-4 py-3 ${
@@ -493,13 +602,23 @@ function MessageBubble({ message }: { message: Message }) {
                 )}
 
                 {/* Content */}
-                <div className="whitespace-pre-wrap">
-                    {message.isStreaming ? (
-                        <span className="inline-block animate-pulse">&#x25CF;</span>
-                    ) : message.content || (
-                        <span className="text-muted-foreground">Processing...</span>
-                    )}
-                </div>
+                {message.role === 'user' ? (
+                    <div className="text-primary-foreground whitespace-pre-wrap break-words">
+                        {message.content || <span className="opacity-80">Processing...</span>}
+                    </div>
+                ) : (
+                    <div className="prose-sm dark:prose-invert prose prose-p:m-0 prose-li:m-0 prose-ul:m-0 prose-ol:m-0 prose-h1:m-0 prose-h2:m-0 prose-h3:m-0 max-w-full overflow-x-auto">
+                        {message.isStreaming ? (
+                            <span className="inline-block animate-pulse">&#x25CF;</span>
+                        ) : message.content ? (
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                                {message.content}
+                            </ReactMarkdown>
+                        ) : (
+                            <span className="text-muted-foreground">Processing...</span>
+                        )}
+                    </div>
+                )}
 
                 {/* Timestamp */}
                 <div className="mt-2 text-xs opacity-70">
@@ -553,10 +672,12 @@ function ElicitationForm({
     elicitation,
     onSubmit,
     onCancel,
+    submitError,
 }: {
     elicitation: ElicitationData;
     onSubmit: (id: string, action: string, data: Record<string, any> | null) => void;
     onCancel: () => void;
+    submitError: string | null;
 }) {
     const { elicitation_id, message, requested_schema } = elicitation;
     const properties = requested_schema?.properties || {};
@@ -696,6 +817,14 @@ function ElicitationForm({
                 </div>
                 <h2 className="text-lg font-semibold text-foreground">Information Required</h2>
                 <p className="mt-1 text-sm text-muted-foreground">{message}</p>
+                <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">
+                    Demo API key: <span className="font-mono font-semibold">demo-api-key-12345</span>
+                </div>
+                {submitError && (
+                    <p className="mt-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                        {submitError}
+                    </p>
+                )}
 
                 <form onSubmit={handleSubmit} className="mt-4 space-y-4">
                     {Object.entries(properties).map(([key, schema]) =>
@@ -736,10 +865,12 @@ function ElicitationUrl({
     elicitation,
     onComplete,
     onCancel,
+    submitError,
 }: {
     elicitation: ElicitationData;
     onComplete: (id: string) => void;
     onCancel: () => void;
+    submitError: string | null;
 }) {
     const { elicitation_id, message, url } = elicitation;
     const [hasOpened, setHasOpened] = useState(false);
@@ -773,6 +904,11 @@ function ElicitationUrl({
                 </div>
                 <h2 className="text-lg font-semibold text-foreground">Authorization Required</h2>
                 <p className="mt-1 text-sm text-muted-foreground">{message}</p>
+                {submitError && (
+                    <p className="mt-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                        {submitError}
+                    </p>
+                )}
 
                 {url && (
                     <div className="mt-3 rounded-lg bg-muted p-3 break-all">
