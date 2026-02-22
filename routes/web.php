@@ -31,6 +31,11 @@ Route::get('/', function () {
                 'description' => 'Project management agent with MCP-style elicitation, dynamic forms, and tool orchestration',
                 'url' => route('tutorial.mcp-chat'),
             ],
+            [
+                'title' => 'Durable Runs Demo',
+                'description' => 'Run IDs, database checkpoints, cancellation, idempotency keys, and resume after interruption',
+                'url' => route('tutorial.durable-run'),
+            ],
         ],
     ]);
 })->name('home');
